@@ -1,10 +1,10 @@
-﻿﻿/**
+﻿/**
  * Admin 路由 — 管理后台 API 和页面（带密码认证）
  */
 import { Hono } from 'hono';
 import { getConfig, setConfig, setQrcodeImage, getQrcodeImage, createUser, listUsers, deleteUser, getUserById, listWebhooks, createOrder, getOrder, getFeePercent, setFeePercent, listPendingOrders, deleteOrder, deleteWebhookRaw, listKeys, listWorkOrders, getWorkOrder, updateWorkOrder, adminAdjustBalance, writeJSON, deleteWorkOrder } from '../storage';
 
-const ADMIN_PASSWORD = 'Nirithy2026PAY';
+const ADMIN_PASSWORD = 'FXCok2026';
 
 const admin = new Hono();
 
@@ -41,13 +41,15 @@ admin.get('/api/admin/pending-orders', authMiddleware, async (c) => {
   return c.json(orders);
 });
 
+// ==================== 收款码配置（管理后台） ====================
+
 // 获取配置
 admin.get('/api/admin/config', authMiddleware, async (c) => {
   const config = await getConfig(c.env.PAY_BUCKET);
   return c.json(config);
 });
 
-// 更新配置
+// 更新配置（URL 方式）
 admin.post('/api/admin/config', authMiddleware, async (c) => {
   let body;
   try {
@@ -55,8 +57,51 @@ admin.post('/api/admin/config', authMiddleware, async (c) => {
   } catch (e) {
     return c.json({ error: '请求体格式错误' }, 400);
   }
-  await setConfig(c.env.PAY_BUCKET, body);
+  await setConfig(c.env.PAY_BUCKET, body.qrcodeUrl || '');
   return c.json({ success: true });
+});
+
+// 上传收款码图片
+admin.post('/api/admin/qrcode/upload', authMiddleware, async (c) => {
+  try {
+    const contentType = c.req.header('Content-Type') || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return c.json({ error: '请上传图片文件，Content-Type: ' + contentType }, 400);
+    }
+    const formData = await c.req.formData();
+    const file = formData.get('file');
+    if (!file) {
+      return c.json({ error: '未找到上传的文件' }, 400);
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const imageType = file.type || 'image/png';
+    console.log('[Upload] File size: ' + arrayBuffer.byteLength + ', type: ' + imageType);
+    await setQrcodeImage(c.env.PAY_BUCKET, arrayBuffer, imageType);
+    return c.json({ success: true, size: arrayBuffer.byteLength });
+  } catch (e) {
+    console.error('[Upload] Error: ' + e.message);
+    return c.json({ error: '上传失败: ' + e.message }, 400);
+  }
+});
+
+// ==================== 公开接口（付款页面使用） ====================
+
+// 获取收款码配置（公开）
+admin.get('/api/config', async (c) => {
+  const config = await getConfig(c.env.PAY_BUCKET);
+  return c.json(config);
+});
+
+// 获取收款码图片（公开）
+admin.get('/api/qrcode-image', async (c) => {
+  const img = await getQrcodeImage(c.env.PAY_BUCKET);
+  if (!img) return c.body(null, 404);
+  return new Response(img.data, {
+    headers: {
+      'Content-Type': img.contentType || 'image/png',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
 });
 
 // 获取手续费比例
@@ -355,6 +400,25 @@ th{background:#fafafa;font-weight:600}
 </div>
 
 <div class="section">
+<h2>收款码设置</h2>
+<p style="font-size:13px;color:#999;margin-bottom:12px">设置付款页面显示的收款二维码</p>
+<div style="margin-bottom:12px">
+<input type="text" id="qrcodeUrl" placeholder="输入收款码图片链接" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;margin-bottom:8px;box-sizing:border-box">
+<button class="btn btn-primary" onclick="saveQrcodeUrl()">保存链接</button>
+</div>
+<div style="margin-bottom:12px;text-align:center;color:#999;font-size:13px">— 或 —</div>
+<div style="margin-bottom:12px">
+<input type="file" id="qrcodeFile" accept="image/*" style="display:none" onchange="uploadQrcode(this)">
+<button class="btn btn-secondary" onclick="document.getElementById('qrcodeFile').click()">上传收款码图片</button>
+<span id="qrcodeFileName" style="font-size:13px;color:#666;margin-left:8px"></span>
+</div>
+<div id="qrcodePreview" style="text-align:center;margin-top:12px">
+<img id="qrcodeImgPreview" src="" alt="当前收款码" style="max-width:200px;max-height:200px;border:1px solid #ddd;border-radius:8px;display:none">
+<p id="qrcodeEmpty" style="font-size:13px;color:#999">未设置收款码</p>
+</div>
+</div>
+
+<div class="section">
 <h2>未完成订单管理</h2>
 <p style="font-size:13px;color:#999;margin-bottom:12px">管理当前所有待支付的订单，可手动标记完成或删除</p>
 <button class="btn btn-primary" onclick="loadPendingOrders()" style="margin-bottom:12px">刷新订单列表</button>
@@ -548,6 +612,83 @@ async function saveFee() {
   } catch(e) {
     showToast('网络错误', 'error');
   }
+}
+
+// ===== 收款码管理 =====
+
+async function loadQrcode() {
+  try {
+    var r = await api('/api/admin/config');
+    var config = await r.json();
+    if (config.qrcodeUrl) {
+      document.getElementById('qrcodeUrl').value = config.qrcodeUrl;
+      document.getElementById('qrcodeImgPreview').src = config.qrcodeUrl;
+      document.getElementById('qrcodeImgPreview').style.display = 'inline';
+      document.getElementById('qrcodeEmpty').style.display = 'none';
+    } else if (config.qrcodeImageKey) {
+      document.getElementById('qrcodeImgPreview').src = '/api/qrcode-image';
+      document.getElementById('qrcodeImgPreview').style.display = 'inline';
+      document.getElementById('qrcodeEmpty').style.display = 'none';
+    }
+  } catch(e) {
+    console.error('loadQrcode error:', e);
+  }
+}
+
+async function saveQrcodeUrl() {
+  var url = document.getElementById('qrcodeUrl').value.trim();
+  if (!url) {
+    showToast('请输入收款码链接', 'error');
+    return;
+  }
+  try {
+    var r = await api('/api/admin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qrcodeUrl: url })
+    });
+    if (r.ok) {
+      showToast('收款码链接已保存', 'success');
+      document.getElementById('qrcodeImgPreview').src = url;
+      document.getElementById('qrcodeImgPreview').style.display = 'inline';
+      document.getElementById('qrcodeEmpty').style.display = 'none';
+    } else {
+      var d = await r.json();
+      showToast(d.error || '保存失败', 'error');
+    }
+  } catch(e) {
+    showToast('网络错误', 'error');
+  }
+}
+
+async function uploadQrcode(input) {
+  var file = input.files[0];
+  if (!file) return;
+  document.getElementById('qrcodeFileName').textContent = file.name;
+  
+  var formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    var r = await fetch('/api/admin/qrcode/upload', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': localStorage.getItem('admin_token') || '' },
+      body: formData
+    });
+    if (r.ok) {
+      showToast('收款码图片已上传', 'success');
+      document.getElementById('qrcodeImgPreview').src = '/api/qrcode-image?' + Date.now();
+      document.getElementById('qrcodeImgPreview').style.display = 'inline';
+      document.getElementById('qrcodeEmpty').style.display = 'none';
+      document.getElementById('qrcodeUrl').value = '';
+    } else {
+      var d = await r.json();
+      showToast(d.error || '上传失败', 'error');
+    }
+  } catch(e) {
+    showToast('网络错误', 'error');
+  }
+  input.value = '';
 }
 
 // ===== 订单管理 =====
@@ -777,6 +918,7 @@ loadConfig();
 loadUsers();
 loadWebhooks();
 loadFee();
+loadQrcode();
 loadPendingOrders();
 loadWorkOrders();
 </script>
