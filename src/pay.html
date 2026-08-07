@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>支付宝付款</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+.card { background: #fff; border-radius: 12px; padding: 32px; width: 360px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.title { font-size: 20px; color: #333; margin-bottom: 8px; }
+.amount { font-size: 36px; color: #1677ff; font-weight: bold; margin: 16px 0; }
+.amount span { font-size: 18px; }
+.qrcode-img { width: 200px; height: 200px; margin: 16px auto; border: 1px solid #eee; border-radius: 8px; object-fit: contain; }
+.hint { font-size: 14px; color: #999; margin: 12px 0; }
+.status-pending { color: #fa8c16; font-size: 15px; margin: 12px 0; }
+.status-completed { color: #52c41a; font-size: 18px; font-weight: bold; margin: 20px 0; }
+.status-expired { color: #ff4d4f; font-size: 18px; font-weight: bold; margin: 20px 0; }
+.status-error { color: #ff4d4f; font-size: 15px; margin: 20px 0; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fa8c16; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.check-icon { font-size: 48px; color: #52c41a; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="content"></div>
+</div>
+
+<script>
+// 从 URL 获取订单 ID
+const pathParts = window.location.pathname.split('/');
+const orderId = pathParts[pathParts.length - 1];
+
+let pollingTimer = null;
+
+// 加载订单状态
+async function loadOrder() {
+  const res = await fetch('/api/order/' + orderId + '/status');
+  return res.ok ? await res.json() : null;
+}
+
+// 渲染页面
+function render(state, data) {
+  const content = document.getElementById('content');
+
+  if (state === 'loading') {
+    content.innerHTML = '<div class="spinner"></div> 加载中...';
+    return;
+  }
+
+  if (state === 'error') {
+    content.innerHTML = '<div class="status-error">订单不存在或已失效</div>';
+    return;
+  }
+
+  if (state === 'completed') {
+    content.innerHTML = `
+      <div class="check-icon">&#10004;</div>
+      <div class="status-completed">支付成功</div>
+      <div class="amount"><span>￥</span>${data.amount.toFixed(2)}</div>
+      <div class="hint">订单号: ${data.orderId}</div>
+    `;
+    return;
+  }
+
+  if (state === 'expired') {
+    content.innerHTML = `
+      <div class="status-expired">订单已过期</div>
+      <div class="amount"><span>￥</span>${data.amount.toFixed(2)}</div>
+      <div class="hint">请重新创建订单</div>
+    `;
+    return;
+  }
+
+  // pending 状态 — 展示收款码
+  content.innerHTML = `
+    <div class="title">支付宝扫码支付</div>
+    <div class="amount"><span>￥</span>${data.amount.toFixed(2)}</div>
+    <img class="qrcode-img" id="qrcodeImg" src="" alt="收款码">
+    <div class="status-pending"><span class="spinner"></span>等待支付...</div>
+    <div class="hint">请使用支付宝扫描二维码完成付款</div>
+    <div class="hint" style="font-size:12px">订单号: ${data.orderId}</div>
+  `;
+}
+
+// 开始轮询
+function startPolling() {
+  let pollCount = 0;
+  pollingTimer = setInterval(async () => {
+    pollCount++;
+    const order = await loadOrder();
+
+    if (!order) {
+      render('error');
+      clearInterval(pollingTimer);
+      return;
+    }
+
+    if (order.status === 'completed') {
+      render('completed', order);
+      clearInterval(pollingTimer);
+      return;
+    }
+
+    if (order.status === 'expired') {
+      render('expired', order);
+      clearInterval(pollingTimer);
+      return;
+    }
+
+    // 超过 30 分钟自动标记过期
+    if (order.status === 'pending' && Date.now() - order.createdAt > 30 * 60 * 1000) {
+      render('expired', order);
+      clearInterval(pollingTimer);
+      return;
+    }
+
+    // 首次加载后更新收款码图片
+    if (pollCount === 1) {
+      loadQrcode();
+    }
+  }, 2000);
+}
+
+// 加载收款码图片
+async function loadQrcode() {
+  try {
+    const res = await fetch('/api/admin/config');
+    const config = await res.json();
+    const img = document.getElementById('qrcodeImg');
+    if (img && config.qrcodeUrl) {
+      img.src = config.qrcodeUrl;
+    }
+  } catch (e) {
+    // 忽略
+  }
+}
+
+// 初始化
+(async () => {
+  render('loading');
+  const order = await loadOrder();
+
+  if (!order) {
+    render('error');
+    return;
+  }
+
+  if (order.status === 'completed') {
+    render('completed', order);
+    return;
+  }
+
+  if (order.status === 'expired') {
+    render('expired', order);
+    return;
+  }
+
+  // 检查是否已过期
+  if (Date.now() - order.createdAt > 30 * 60 * 1000) {
+    render('expired', order);
+    return;
+  }
+
+  render('pending', order);
+  // 立即加载收款码
+  loadQrcode();
+  startPolling();
+})();
+</script>
+</body>
+</html>

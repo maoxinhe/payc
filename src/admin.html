@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin 后台 - 收款系统</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+.container { max-width: 900px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 24px; margin-bottom: 24px; color: #1a1a1a; }
+.section { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.section h2 { font-size: 18px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 14px; margin-bottom: 4px; color: #666; }
+.form-group input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+.form-row { display: flex; gap: 8px; }
+.form-row input { flex: 1; }
+.btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+.btn-primary { background: #1677ff; color: #fff; }
+.btn-primary:hover { background: #4096ff; }
+.btn-danger { background: #ff4d4f; color: #fff; }
+.btn-danger:hover { background: #ff7875; }
+.btn-success { background: #52c41a; color: #fff; }
+.qrcode-preview { max-width: 200px; margin-top: 8px; border: 1px solid #eee; border-radius: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #fafafa; font-weight: 600; }
+.api-key { font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; word-break: break-all; }
+.status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+.status-matched { background: #f6ffed; color: #52c41a; }
+.status-unmatched { background: #fff7e6; color: #fa8c16; }
+.status-completed { background: #e6f7ff; color: #1677ff; }
+.webhook-item { background: #fafafa; padding: 12px; border-radius: 4px; margin-bottom: 8px; font-size: 13px; }
+.webhook-item pre { background: #f0f0f0; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin-top: 4px; max-height: 150px; overflow-y: auto; }
+.tabs { display: flex; gap: 0; margin-bottom: 16px; }
+.tab { padding: 8px 20px; border: 1px solid #ddd; background: #fafafa; cursor: pointer; font-size: 14px; }
+.tab:first-child { border-radius: 4px 0 0 4px; }
+.tab:last-child { border-radius: 0 4px 4px 0; }
+.tab.active { background: #1677ff; color: #fff; border-color: #1677ff; }
+.toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 1000; display: none; }
+.toast.success { background: #52c41a; }
+.toast.error { background: #ff4d4f; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>收款系统 Admin 后台</h1>
+  <div id="toast" class="toast"></div>
+
+  <!-- 收款码配置 -->
+  <div class="section">
+    <h2>收款码配置</h2>
+    <div class="form-group">
+      <label>收款码图片链接</label>
+      <div class="form-row">
+        <input type="text" id="qrcodeInput" placeholder="输入收款码图片 URL">
+        <button class="btn btn-primary" onclick="saveQrcode()">保存</button>
+      </div>
+    </div>
+    <img id="qrcodePreview" class="qrcode-preview" src="" alt="收款码预览" style="display:none">
+  </div>
+
+  <!-- 用户管理 -->
+  <div class="section">
+    <h2>用户管理</h2>
+    <div class="form-group">
+      <label>创建新用户</label>
+      <div class="form-row">
+        <input type="text" id="usernameInput" placeholder="输入用户名">
+        <button class="btn btn-primary" onclick="createUser()">创建用户</button>
+      </div>
+    </div>
+    <table id="userTable">
+      <thead><tr><th>用户名</th><th>API Key</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Webhook 消息 -->
+  <div class="section">
+    <h2>Webhook 消息记录</h2>
+    <button class="btn btn-primary" onclick="loadWebhooks()" style="margin-bottom:12px">刷新</button>
+    <div id="webhookList"></div>
+  </div>
+</div>
+
+<script>
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+
+// 加载收款码
+async function loadConfig() {
+  const res = await fetch('/api/admin/config');
+  const data = await res.json();
+  const input = document.getElementById('qrcodeInput');
+  const preview = document.getElementById('qrcodePreview');
+  if (data.qrcodeUrl) {
+    input.value = data.qrcodeUrl;
+    preview.src = data.qrcodeUrl;
+    preview.style.display = 'block';
+  }
+}
+
+// 保存收款码
+async function saveQrcode() {
+  const qrcodeUrl = document.getElementById('qrcodeInput').value.trim();
+  if (!qrcodeUrl) return toast('请输入收款码链接', 'error');
+  const res = await fetch('/api/admin/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qrcodeUrl })
+  });
+  if (res.ok) {
+    toast('保存成功', 'success');
+    loadConfig();
+  } else {
+    toast('保存失败', 'error');
+  }
+}
+
+// 加载用户列表
+async function loadUsers() {
+  const res = await fetch('/api/admin/users');
+  const users = await res.json();
+  const tbody = document.querySelector('#userTable tbody');
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td>${u.username}</td>
+      <td><span class="api-key">${u.apiKey}</span></td>
+      <td>${new Date(u.createdAt).toLocaleString('zh-CN')}</td>
+      <td><button class="btn btn-danger" onclick="deleteUser('${u.userId}')">删除</button></td>
+    </tr>
+  `).join('');
+}
+
+// 创建用户
+async function createUser() {
+  const username = document.getElementById('usernameInput').value.trim();
+  if (!username) return toast('请输入用户名', 'error');
+  const res = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username })
+  });
+  if (res.ok) {
+    toast('用户创建成功', 'success');
+    document.getElementById('usernameInput').value = '';
+    loadUsers();
+  } else {
+    toast('创建失败', 'error');
+  }
+}
+
+// 删除用户
+async function deleteUser(userId) {
+  if (!confirm('确定删除该用户？')) return;
+  const res = await fetch('/api/admin/users/' + userId, { method: 'DELETE' });
+  if (res.ok) {
+    toast('删除成功', 'success');
+    loadUsers();
+  } else {
+    toast('删除失败', 'error');
+  }
+}
+
+// 加载 Webhook 记录
+async function loadWebhooks() {
+  const res = await fetch('/api/admin/webhooks');
+  const webhooks = await res.json();
+  const list = document.getElementById('webhookList');
+  if (webhooks.length === 0) {
+    list.innerHTML = '<p style="color:#999">暂无消息</p>';
+    return;
+  }
+  list.innerHTML = webhooks.map(w => {
+    const statusClass = w.matchResult === 'matched' ? 'status-matched' : 
+                        w.matchResult === 'already_completed' ? 'status-completed' : 'status-unmatched';
+    const statusText = w.matchResult === 'matched' ? '已匹配' : 
+                       w.matchResult === 'already_completed' ? '已完成' : '未匹配';
+    return `
+    <div class="webhook-item">
+      <div>
+        <span class="status ${statusClass}">${statusText}</span>
+        ${w.matchedOrderId ? ' 订单: ' + w.matchedOrderId : ''}
+        <span style="color:#999;margin-left:12px">${new Date(w.timestamp).toLocaleString('zh-CN')}</span>
+      </div>
+      <pre>${JSON.stringify(w.rawData, null, 2)}</pre>
+    </div>`;
+  }).join('');
+}
+
+// 初始化
+loadConfig();
+loadUsers();
+loadWebhooks();
+</script>
+</body>
+</html>
