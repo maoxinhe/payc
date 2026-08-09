@@ -1,28 +1,22 @@
-/**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
- */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "pay-system",
-	"main": "src/index.js",
-	"compatibility_date": "2026-08-07",
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true,
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
-	// R2 Bucket 绑定 — 存储配置、用户、订单、Webhook 原始消息
-	"r2_buckets": [
-		{
-			"binding": "PAY_BUCKET",
-			"bucket_name": "pay-system-data"
-		}
-	],
-	// Cron Trigger — 每小时清理过期订单
-	"triggers": {
-		"crons": ["0 * * * *"]
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pay-system",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-07",
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+  "compatibility_flags": ["nodejs_compat"],
+  // R2 Bucket 绑定
+  "r2_buckets": [
+    {
+      "binding": "PAY_BUCKET",
+      "bucket_name": "pay-system-data"
+    }
+  ],
+  // Cron Trigger — 每小时清理过期订单
+  "triggers": {
+    "crons": ["0 * * * *"]
+  }
 }
