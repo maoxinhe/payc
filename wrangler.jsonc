@@ -6,8 +6,15 @@
   "observability": {
     "enabled": true
   },
-  "upload_source_maps": true,
+  "upload_source_maps": false,
   "compatibility_flags": ["nodejs_compat"],
+  // KV Namespace 绑定（存储敏感凭证）
+  "kv_namespaces": [
+    {
+      "binding": "SECRETS_KV",
+      "id": "3b8686f70f7644d5bd405cbc6deff8c5"
+    }
+  ],
   // R2 Bucket 绑定
   "r2_buckets": [
     {

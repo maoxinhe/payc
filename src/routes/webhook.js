@@ -156,9 +156,10 @@ function extractTime(rawData) {
 
 // 接收付款通知
 webhook.post('/api/webhook/payment', async (c) => {
-  // 验证 Webhook Secret Header
+  // 验证 Webhook Secret Header（从环境变量读取）
   const webhookKey = c.req.header('NirithyAPI');
-  if (webhookKey !== '245680') {
+  const expectedKey = c.env.WEBHOOK_SECRET;
+  if (!expectedKey || webhookKey !== expectedKey) {
     return c.json({ error: '未授权' }, 401);
   }
 

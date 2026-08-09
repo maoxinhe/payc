@@ -4,9 +4,12 @@
 import { Hono } from 'hono';
 import { getConfig, setConfig, setQrcodeImage, getQrcodeImage, createUser, listUsers, deleteUser, getUserById, listWebhooks, createOrder, getOrder, getFeePercent, setFeePercent, listPendingOrders, deleteOrder, deleteWebhookRaw, listKeys, listWorkOrders, getWorkOrder, updateWorkOrder, adminAdjustBalance, writeJSON, deleteWorkOrder } from '../storage';
 
-const ADMIN_PASSWORD = 'FXCok2026';
-
 const admin = new Hono();
+
+// 获取管理员密码（从环境变量读取）
+function getAdminPassword(c) {
+  return c.env.ADMIN_PASSWORD;
+}
 
 // 检测是否为浏览器 GET 请求
 function isPageRequest(c) {
@@ -16,7 +19,8 @@ function isPageRequest(c) {
 // 验证管理员认证
 function checkAuth(c) {
   const token = c.req.query('token') || c.req.header('X-Admin-Token');
-  return token === ADMIN_PASSWORD;
+  const password = getAdminPassword(c);
+  return password && token === password;
 }
 
 // 管理员认证中间件
@@ -284,8 +288,9 @@ admin.post('/api/admin/login', async (c) => {
   } catch (e) {
     return c.json({ error: '请求体格式错误' }, 400);
   }
-  if (body.password === ADMIN_PASSWORD) {
-    return c.json({ success: true, token: ADMIN_PASSWORD });
+  const password = getAdminPassword(c);
+  if (password && body.password === password) {
+    return c.json({ success: true, token: password });
   }
   return c.json({ error: '密码错误' }, 401);
 });
