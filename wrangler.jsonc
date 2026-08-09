@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "pay-system",
+  "name": "payc",
   "main": "src/index.js",
   "compatibility_date": "2026-08-07",
   "observability": {
