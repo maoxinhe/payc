@@ -6,9 +6,9 @@ import { getConfig, setConfig, setQrcodeImage, getQrcodeImage, createUser, listU
 
 const admin = new Hono();
 
-// 获取管理员密码（从环境变量读取）
-function getAdminPassword(c) {
-  return c.env.ADMIN_PASSWORD;
+// 获取管理员密码（从 KV 读取）
+async function getAdminPassword(c) {
+  return await c.env.SECRETS_KV.get('ADMIN_PASSWORD');
 }
 
 // 检测是否为浏览器 GET 请求
@@ -17,9 +17,9 @@ function isPageRequest(c) {
 }
 
 // 验证管理员认证
-function checkAuth(c) {
+async function checkAuth(c) {
   const token = c.req.query('token') || c.req.header('X-Admin-Token');
-  const password = getAdminPassword(c);
+  const password = await getAdminPassword(c);
   return password && token === password;
 }
 
