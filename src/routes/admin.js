@@ -288,11 +288,12 @@ admin.post('/api/admin/login', async (c) => {
   } catch (e) {
     return c.json({ error: '请求体格式错误' }, 400);
   }
-  const password = getAdminPassword(c);
-  if (password && body.password === password) {
+  const password = await getAdminPassword(c);
+  const username = await c.env.SECRETS_KV.get('ADMIN_USERNAME');
+  if (username && password && body.username === username && body.password === password) {
     return c.json({ success: true, token: password });
   }
-  return c.json({ error: '密码错误' }, 401);
+  return c.json({ error: '用户名或密码错误' }, 401);
 });
 
 const LOGIN_HTML = `<!DOCTYPE html>
@@ -313,13 +314,16 @@ button:hover{background:#4096ff}
 <body>
 <div class="login-box">
 <h2>管理后台登录</h2>
-<input type="password" id="pwd" placeholder="请输入管理密码" onkeypress="if(event.key==='Enter')login()">
+<input type="text" id="username" placeholder="请输入用户名" onkeypress="if(event.key==='Enter')document.getElementById('pwd').focus()">
+<input type="password" id="pwd" placeholder="请输入密码" onkeypress="if(event.key==='Enter')login()">
 <button onclick="login()">登录</button>
 </div>
 <script>
 function login(){
+  var username=document.getElementById('username').value;
   var pwd=document.getElementById('pwd').value;
-  fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})})
+  if(!username||!pwd){alert('请输入用户名和密码');return}
+  fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:pwd})})
     .then(function(r){return r.json()})
     .then(function(d){
       if(d.token){
@@ -332,7 +336,7 @@ function login(){
       }
     });
 }
-document.getElementById('pwd').focus();
+document.getElementById('username').focus();
 </script>
 </body>
 </html>`;
